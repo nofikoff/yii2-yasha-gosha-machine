@@ -6,7 +6,6 @@
     "require": {},
     "autoload": {
         "psr-4": {
-		"nofikoff\\yashagosha\\": "",
 		"nofikoff\\yashagosha\\": ""
 	}
 
