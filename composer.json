@@ -1,0 +1,14 @@
+{
+    "name": "nofikoff/yii2-parser-machine",
+    "description": "test",
+    "version": "v1.7",
+    "license": "test",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+		"Nofikoff\\GoogleMachine\\": "app/models",
+		"Nofikoff\\YandexMachine\\": "app/models"
+	}
+
+    }
+}
