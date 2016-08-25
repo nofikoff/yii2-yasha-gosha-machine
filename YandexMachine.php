@@ -4,7 +4,7 @@
  */
 
 
-namespace app\models;
+namespace nofikoff\yashagosha;
 
 //use Yii;
 
