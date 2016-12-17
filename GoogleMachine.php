@@ -9,15 +9,24 @@ namespace nofikoff\yashagosha;
 //use Yii;
 
 use app\controllers\SystemMessagesLogController;
+use app\controllers\TestController;
 use nofikoff\proxybrowser\ProxyBrowser;
 
 class GoogleMachine
 {
 
+    public $result = [
+        'error' => 0,
+        'description' => '',
+        'date' => false,
+        'result' => 0,
+        'code' => 0,
+    ];
     public $gdomain = 'google.ru';
     public $glang = 'ru';
     public $gnearcity = '';
     public $debug = false;
+
 
     // режим ТОЧНОЕ СООТВЕТСВИЕ в кавычкаъ
     public $exactly = false;
@@ -32,26 +41,42 @@ class GoogleMachine
     // задержка между обращениями в ГУгл
     public $timeout_sec = 1; // обычно 3, но есл ииспоьлзовать тор прокси, то и так тупит ответка
 
+    public $use_antigate = 1;
+    public $use_my_external_php_proxy = 0;
+
+    public $file_cookies = './_logs/_google_cookies.txt';
 
     // читаем результат запроса в поисковике
-    public function get_page($strReq)
+    //$strParams= 'tbm=isch'; - поиск по картинкам
+    public function get_page($strReq, $strParams = '')
     {
 
-        $result['error'] = false;
-        $result['description'] = '';
+
+        $this->result['error'] = false;
+        $this->result['description'] = '';
+        $this->result['result'] = '';
 
         if (!trim($strReq)) {
-            $result['error'] = true;
-            $result['description'] = 'ERROR. Пустаой запрос';
-            return $result;
+            $this->result['error'] = true;
+            $this->result['description'] = 'ERROR. Пустой запрос';
+            return $this->result;
         }
 
+
         $browser = new ProxyBrowser();
+
         $browser->erase_js = true;
+        $browser->use_antigate = $this->use_antigate;
+        $browser->use_my_external_php_proxy = $this->use_my_external_php_proxy;
+        $browser->file_cookies = $this->file_cookies;
         $browser->timeout = $this->timeout_sec;
+        $browser->timewaitconnect = 30;
         $browser->interface_lang = 'en';
-        $a = $browser->get_http($this->get_url_request($strReq));
-        if (!$a['error']) $result['result'] = $a['result'];
+
+        if ($strParams) $strParams = '&' . $strParams;
+        $a = $browser->get_http($this->get_url_request($strReq) . $strParams);
+
+        if (!$a['error']) $this->result['result'] = $a['raw'];
         else echo $a['description'];
 
         if ($this->debug OR 1) {
@@ -60,88 +85,85 @@ class GoogleMachine
             //1 ключевое сообщение зеленым
             //2 красный варанинг
             //3 красный ЖИРНЫМ фатал
-                1,
-                "result",
+                0,
+                "GoogleMachine get_page",
                 "Просто накапливаем выдачу поисковиков Гугл ",
-                $result['result']
+                $a['raw']
             );
         }
 
-        if (preg_match('/To continue, please type the characters below/i', $result['result'])) {
-            $result['error'] = true;
-            $result['description'] = 'ERROR. Каптча в выдаче';
+        if (preg_match('/To continue, please type the characters below/i', $this->result['result'])) {
+            $this->result['error'] = true;
+            $this->result['description'] = 'ERROR. Каптча в выдаче';
         }
 
         //
-        return $result;
+        return $this->result;
 
     }
 
     // читаем результат запроса в поисковике
+    // выводит грязный хтмл кэша конкретной страницы
+    // и ее дату в массиве
     public function get_cache($url)
     {
 
         $url = ProxyBrowser::url_http_cutting($url);
 
-        $result['error'] = false;
-        $result['description'] = '';
-        $result['date'] = '000-00-00';
-        $result['result'] = '';
+        $this->result['url'] = $url;
 
         if (!trim($url)) {
-            $result['error'] = true;
-            $result['description'] = 'ERROR. Пустаой запрос';
-            return $result;
+            $this->result['error'] = true;
+            $this->result['description'] = 'ERROR. Пустаой запрос';
+            return $this->result;
         }
 
         $browser = new ProxyBrowser();
+        $browser->use_antigate = $this->use_antigate;
+        $browser->file_cookies = $this->file_cookies;
+
         $browser->erase_js = true;
         $browser->timeout = $this->timeout_sec;
         $browser->interface_lang = 'en';
-        $a = $browser->get_http('http://webcache.googleusercontent.com/search?q=cache:' . $url);
-        if (!$a['error'])
-            $result['result'] = $a['result'];
-        else
-            echo 'GM error get http: '.$a['description'];
+        $a = $browser->get_http('http://webcache.googleusercontent.com/search?q=cache:' . $url . '&hl=' . $browser->interface_lang);
 
 
-        if ($this->debug OR 1) {
-            SystemMessagesLogController::Save(
-            //0 просто мессадж серым
-            //1 ключевое сообщение зеленым
-            //2 красный варанинг
-            //3 красный ЖИРНЫМ фатал
-                1,
-                "Google get_cache",
-                "Просто накапливаем выдачу поисковиков Гугл ",
-                $result['result']
-            );
-        }
+        $this->result['result'] = $a['raw'];
+        $this->result['code'] = $a['code'];
 
+        SystemMessagesLogController::Save(
+        //0 просто мессадж серым
+        //1 ключевое сообщение зеленым
+        //2 красный варанинг
+        //3 красный ЖИРНЫМ фатал
+            0,
+            "Google get_cache",
+            "Просто накапливаем выдачу поисковиков Гугл ",
+            $this->result['result']
+        );
 
-        if (preg_match('/was not found on this server\.\s+<ins>That’s all we know\.<\/ins>/i', $result['result'])) {
-            $result['error'] = true;
-            $result['description'] = 'ERROR. No cache';
-        } else if (!preg_match('/page as it appeared on (.*?)\./i', $result['result'], $d)) {
-            $result['error'] = true;
-            $result['description'] = 'ERROR. Не вижу даты кэша - значит кэшбитый';
+        if (preg_match('/was not found on this server\.\s+<ins>That’s all we know\.<\/ins>/i', $this->result['result'])) {
+            $this->result['error'] = true;
+            $this->result['description'] = 'ERROR. No cache';
+        } else if (!preg_match('/page as it appeared on (.*?)\./i', $this->result['result'], $d)) {
+            $this->result['error'] = true;
+            $this->result['description'] = 'ERROR. Не вижу даты кэша - значит кэшбитый';
         } else {
-            $result['date'] = date('Y-m-d', strtotime($d[1]));
+            $this->result['date'] = date('Y-m-d', strtotime($d[1]));
             // дату определили
             // выкидывем первую строку с вставкой гугл
-            $result['result'] = preg_replace('/^.+\n/', '', $result['result']);
-            $result['result'] = preg_replace('/^.+\n/', '', $result['result']);
-
+            $this->result['result'] = preg_replace('/^.+\n/', '', $this->result['result']);
+            $this->result['result'] = preg_replace('/^.+\n/', '', $this->result['result']);
         }
 
-        if (preg_match('/To continue, please type the characters below/i', $result['result'])) {
-            $result['error'] = true;
-            $result['description'] = 'ERROR. Каптча в выдаче';
+        if (preg_match('/To continue, please type the characters below/i', $this->result['result'])) {
+            $this->result['error'] = true;
+            $this->result['description'] = 'ERROR. Каптча в выдаче';
         }
 
 
         //
-        return $result;
+        return $this->result;
 
     }
 
@@ -161,33 +183,247 @@ class GoogleMachine
 
 
     // парсим количество найденых страниц из выдач гугла
+    // на входе грязный хтмл твета гугл
     public function parse_number_finded_results($strResponce)
     {
-        $result['error'] = false;
-        $result['description'] = '';
-        $result['result'] = '';
 
-        if (preg_match('/did not match any documents/i', $strResponce))
-            $result['result'] = 0;
+        $this->result['error'] = false;
+        $this->result['description'] = '';
+        $this->result['result'] = '';
 
-        else if (preg_match('/No results found for/', $strResponce))
-            $result['result'] = 0;
+//        Результатов: 2
 
-        else if (preg_match('/>About ([0-9]+) results</', $strResponce, $d))
-            $result['result'] = $d[1];
+        if (
+            preg_match('/did not match any documents/i', $strResponce)
+            OR
+            preg_match('/ничего не найдено/ui', $strResponce)
+        )
+            $this->result['result'] = 0;
 
-        else if (preg_match('/>([0-9]+) results</', $strResponce, $d))
-            $result['result'] = $d[1];
+        else if (
+            preg_match('/No results found for/', $strResponce)
+            OR
+            preg_match('/Нет результатов для/ui', $strResponce)
+        )
+            $this->result['result'] = 0;
 
-        else if (preg_match('/>([0-9]+) result</', $strResponce, $d))
-            $result['result'] = $d[1];
+        else if (
+            preg_match('/>About ([0-9, ]+) results</', $strResponce, $d)
+            OR
+            preg_match('/>Результатов: примерно\s([0-9, ]+)</ui', $strResponce, $d)
+            OR
+            preg_match('/>Результатов примерно\s([0-9, ]+)</ui', $strResponce, $d)
+        )
+            $this->result['result'] = $d[1];
+
+        else if (
+            preg_match('/>([0-9, ]+) results</', $strResponce, $d)
+            OR
+            preg_match('/>Результатов:\s([0-9, ]+)</ui', $strResponce, $d)
+        )
+            $this->result['result'] = $d[1];
+        else if (
+        preg_match('/>([0-9, ]+) result</', $strResponce, $d)
+//            OR
+//            preg_match('/>([0-9, ]+) result</', $strResponce, $d)
+        )
+            $this->result['result'] = $d[1];
 
         else {
-            $result['error'] = true;
-            $result['description'] = 'ERROR Парсинг страниы Не могу распарсить страницу гугла на предмет количества резульататов';
+            $this->result['error'] = true;
+            $this->result['description'] = 'ERROR Парсинг страниы Не могу распарсить страницу гугла на предмет количества резульататов';
         }
-        return $result;
+
+
+        $this->result['result'] = str_replace(",", "", $this->result['result']);
+        $this->result['result'] = str_replace(" ", "", $this->result['result']);
+
+        /*
+                print_r($this->result);
+                echo $strResponce;*/
+
+
+        return $this->result;
     }
 
+
+    // возвращает массив с возврастом кэша в ГУгл
+    function google_page_index_age($url)
+    {
+        $this->result['url'] = $url;
+        $r = $this->get_cache($url);
+
+        //
+        if ($r['date']) {
+            $this->result['age'] = floor((time() - strtotime($r['date'])) / (60 * 60 * 24));
+            $this->result['result'] = 1;
+            $this->result['error'] = 0;
+            $this->result['description'] = 'Страница в индексе Гугла';
+            $this->result['date'] = $r['date'];
+
+        } else if ($r['code'] == '404') {
+            SystemMessagesLogController::Save(
+            //0 просто мессадж серым
+            //1 ключевое сообщение зеленым
+            //2 красный варанинг
+            //3 красный ЖИРНЫМ фатал
+                2,
+                "google_indexed",
+                " Страница донора не в Индексе Гугла " . $url
+            );
+            $this->result['result'] = 0;
+            $this->result['age'] = -1;
+            $this->result['error'] = 0;
+            $this->result['description'] = 'Страница донора НЕ в Индексе Гугла';
+
+        } else {
+
+            $this->result['result'] = 0;
+            $this->result['age'] = -1;
+            $this->result['error'] = 1;
+            $this->result['description'] = 'Какой то аппаратный сбой, возможно капча и пр ' . $r['description'];
+
+            SystemMessagesLogController::Save(
+            //0 просто мессадж серым
+            //1 ключевое сообщение зеленым
+            //2 красный варанинг
+            //3 красный ЖИРНЫМ фатал
+                3,
+                "google_indexed",
+                $this->result['description'] . $url
+            );
+
+        }
+
+        return $this->result;
+    }
+
+
+    // возвращает размер индекса проекта по гуглу
+    function google_domain_sizeindex($domain)
+    {
+
+        //для порядку
+        $this->result['url'] = $domain;
+        // готовим запрос в гугл
+        $domain = ProxyBrowser::url_http_cutting(ProxyBrowser::domain_from_url($domain));
+        $r = $this->parse_number_finded_results($this->get_page('site:' . $domain)['result']);
+        //
+        if ($r['result']) {
+            $this->result['result'] = $r['result'];
+            $this->result['error'] = 0;
+            $this->result['description'] = 'Донор имеет страницы в индексе Гугла';
+
+        } else if ($r['result'] == 0) {
+            SystemMessagesLogController::Save(
+            //0 просто мессадж серым
+            //1 ключевое сообщение зеленым
+            //2 красный варанинг
+            //3 красный ЖИРНЫМ фатал
+                2,
+                "google_domain_hasindex",
+                " Донор НЕ имеет страниц в Индексе Гугла " . $domain
+            );
+            $this->result['result'] = 0;
+            $this->result['error'] = 0;
+            $this->result['description'] = 'Страница донора НЕ в Индексе Гугла';
+
+        } else {
+
+            $this->result['result'] = 0;
+            $this->result['error'] = 1;
+            $this->result['description'] = 'Какой то аппаратный сбой, возможно капча и пр ' . $r['description'];
+
+            SystemMessagesLogController::Save(
+            //0 просто мессадж серым
+            //1 ключевое сообщение зеленым
+            //2 красный варанинг
+            //3 красный ЖИРНЫМ фатал
+                3,
+                "google_domain_sizeindex",
+                $this->result['description'] . $domain
+            );
+
+        }
+
+        return $this->result;
+    }
+
+
+    public function indexGoogle___($adr)
+    {
+
+
+        $site_name = preg_replace('/^http:\/\//i', '', $adr);
+        //$site_name = preg_replace('/^www\./i', '', $site_name);
+        //$res_link = mysql_query("SELECT * FROM `moz` WHERE id = 1");
+        //$my_row_link = mysql_fetch_array($res_link);
+        //$link_moz = $my_row_link['link_moz'];
+        //кодировка урла
+        $name_link_encode = urlencode($site_name);
+        // индексация в гугл
+        $in_g_url = "http://www.google.com/search?hl=ru&num=100&filter=0&safe=0&ie=UTF-8&oe=UTF-8&q=info%3A" . $name_link_encode;
+
+        $in_g = $this->file_get_curl($in_g_url);
+
+        if (preg_match("/302 Moved/", $in_g, $qw1)) {
+
+            preg_match("/<A HREF=\"(.*?)\"/", $in_g, $match);
+            //print_r($match);
+            $inputs3 = $match[1];
+            $in_g = $this->file_get_curl($inputs3);
+
+            preg_match_all("/<img src=\"(.*?)\"/", $in_g, $img_url);
+            //print_r($img_url);
+            $url_img = $img_url[1][0];
+            //id captcha
+            preg_match_all("/id=(.*?)&/", $url_img, $id_url);
+            $id_captcha = $id_url[1][0];
+            $url = "http://www.google.ru" . $url_img;
+            //Мы хотим скопировать ее себе на сервер и дать имя “some_image.jpg”
+            $name = dirname(__FILE__) . "/captcha.jpg";
+            //Передадим в функцию copy, наши параметры
+            copy($url, $name);
+            // $url_captcha = ;
+            $text = $this->recognize($name, Yii::$app->get('settings')->get('system.AntigateAPIKey'), true, "antigate.com");
+            // sleep(6);
+            //echo '<img src="captcha.jpg">';
+            if ($text != '') {
+
+                $get_c = "http://www.google.com/sorry/Captcha?continue=http://www.google.com/&id=" . $id_captcha . "&captcha=" . $text . "&submit=Submit";
+
+                $in_g = $this->file_get_contents_curl($get_c);
+
+                if (file_exists(dirname(__FILE__) . '/GOOGLJAR')) {
+                    unlink(dirname(__FILE__) . '/GOOGLJAR');
+                }
+
+            } else {
+                $check_index = 0;
+                /*
+                ?>
+                <form method="POST">
+                <input type="text" name="name_c" value="">
+                <input type="hidden" name="id_c" value="<?=$id_captcha;?>">
+                <input type="submit" name="ca_s">
+                </form>
+                <?
+                */
+            }
+
+        } else {
+            if (preg_match("/ничего не найдено./", $in_g, $qw1)) {
+                $check_index = "no";
+
+            }
+            if (preg_match("/Результатов:/", $in_g, $qw1)) {
+                $check_index = "yes";
+            }
+
+        }
+
+        return $check_index;
+
+    }
 
 }
