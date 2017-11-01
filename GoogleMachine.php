@@ -15,7 +15,6 @@ use nofikoff\proxybrowser\ProxyBrowser;
 class GoogleMachine
 {
 
-
     public $result = [
         'error' => 0,
         'description' => '',
